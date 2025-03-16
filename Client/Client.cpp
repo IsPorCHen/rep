@@ -18,10 +18,7 @@ HANDLE hMutex;
 WSADATA wsaData;
 SOCKET ConnectSocket = INVALID_SOCKET;
 SECURITY_ATTRIBUTES sa;
-int iResult = WSAStartup(MAKEWORD(2, 2), &wsaData);
-struct addrinfo* result = NULL,
-    * ptr = NULL,
-    hints;
+struct addrinfo* result = NULL, * ptr = NULL, hints;
 
 DWORD WINAPI ReceiveMessages(LPVOID lpParam) {
     SOCKET clientSocket = *(SOCKET*)lpParam;
@@ -29,12 +26,15 @@ DWORD WINAPI ReceiveMessages(LPVOID lpParam) {
     int iResult;
 
     while (true) {
-        iResult = recv(clientSocket, recvbuf, BUFLEN, 0);
+        iResult = recv(clientSocket, recvbuf, BUFLEN - 1, 0);
         if (iResult > 0) {
             recvbuf[iResult] = '\0';
 
+            WaitForSingleObject(hMutex, INFINITE);
             cout << "\r" << recvbuf << endl;
-            cout << "> "; 
+            cout << "> ";
+            fflush(stdout);
+            ReleaseMutex(hMutex);
         }
         else if (iResult == 0) {
             cout << "Соединение с сервером закрыто." << endl;
@@ -51,96 +51,86 @@ DWORD WINAPI ReceiveMessages(LPVOID lpParam) {
 int main() {
     setlocale(0, "rus");
 
-    string ipAddress = "192.168.56.1";
+    string ipAddress = "192.168.0.105"; // Замените на IP сервера
 
+    int iResult = WSAStartup(MAKEWORD(2, 2), &wsaData);
     if (iResult != 0) {
         printf("Ошибка загрузки библиотеки\n");
-        WSACleanup();
         return 1;
     }
 
     ZeroMemory(&hints, sizeof(hints));
-    hints.ai_family = AF_UNSPEC;
+    hints.ai_family = AF_INET;
     hints.ai_socktype = SOCK_STREAM;
     hints.ai_protocol = IPPROTO_TCP;
 
     iResult = getaddrinfo(ipAddress.c_str(), PORT, &hints, &result);
     if (iResult != 0) {
-        printf("Ошибка\n");
+        printf("Ошибка getaddrinfo\n");
         WSACleanup();
         return 2;
     }
 
-    sa.nLength = sizeof(SECURITY_ATTRIBUTES);
-    sa.lpSecurityDescriptor = NULL;
-    sa.bInheritHandle = TRUE;
-
     ptr = result;
-
     ConnectSocket = socket(ptr->ai_family, ptr->ai_socktype, ptr->ai_protocol);
     if (ConnectSocket == INVALID_SOCKET) {
-        printf("Ошибка подключения сокета: %d", WSAGetLastError());
+        printf("Ошибка создания сокета: %d\n", WSAGetLastError());
         WSACleanup();
         return 3;
     }
 
     iResult = connect(ConnectSocket, ptr->ai_addr, (int)ptr->ai_addrlen);
     if (iResult == SOCKET_ERROR) {
-        printf("Ошибка подключения к сокету: %d\n", WSAGetLastError());
+        printf("Ошибка подключения к серверу: %d\n", WSAGetLastError());
         closesocket(ConnectSocket);
         WSACleanup();
-        ConnectSocket = INVALID_SOCKET;
-        return 10;
+        return 4;
     }
 
+    freeaddrinfo(result);
+
     char recvbuf[BUFLEN];
-    iResult = recv(ConnectSocket, recvbuf, BUFLEN, 0);
+    iResult = recv(ConnectSocket, recvbuf, BUFLEN - 1, 0);
     if (iResult > 0) {
-        printf("%.*s", iResult, recvbuf);
+        recvbuf[iResult] = '\0';
+        printf("%s", recvbuf);
 
         string name;
-        getline(cin, name); 
+        getline(cin, name);
 
         iResult = send(ConnectSocket, name.c_str(), (int)name.length(), 0);
         if (iResult == SOCKET_ERROR) {
             printf("Ошибка отправки имени: %d\n", WSAGetLastError());
             closesocket(ConnectSocket);
             WSACleanup();
-            return 1;
+            return 5;
         }
     }
 
+    hMutex = CreateMutex(NULL, FALSE, NULL);
     DWORD threadId;
     CreateThread(NULL, 0, ReceiveMessages, &ConnectSocket, 0, &threadId);
 
-    while (true)
-    {
+    while (true) {
         cout << "> ";
-        fflush(stdout);
-
         string input;
         getline(cin, input);
 
         if (input == "/exit") {
-            printf("Выход из чата...");
-            return 0;
+            printf("Выход из чата...\n");
+            break;
         }
 
-        const char* sendbuf = input.c_str();
-        iResult = send(ConnectSocket, sendbuf, (int)strlen(sendbuf), 0);
+        input += "\n";
+        iResult = send(ConnectSocket, input.c_str(), (int)input.length(), 0);
         if (iResult == SOCKET_ERROR) {
             printf("Ошибка отправки сообщения: %d\n", WSAGetLastError());
-            closesocket(ConnectSocket);
-            WSACleanup();
-            return 4;
+            break;
         }
     }
 
-    iResult = shutdown(ConnectSocket, SD_SEND);
-    if (iResult == SOCKET_ERROR) {
-        printf("Программа завершилась с ошибкой: %d\n", WSAGetLastError());
-        closesocket(ConnectSocket);
-        WSACleanup();
-        return 5;
-    }
+    shutdown(ConnectSocket, SD_BOTH);
+    closesocket(ConnectSocket);
+    WSACleanup();
+    return 0;
 }
