@@ -2,6 +2,7 @@
 #define WIN32_LEAN_AND_MEAN
 #define PORT "8080"
 #define BUFLEN 512
+#define IP "26.173.198.217"
 
 #include <iostream>
 #include <Windows.h>
@@ -9,7 +10,7 @@
 #include <WS2tcpip.h>
 #include <string>
 #include <stdio.h>
-
+#include <conio.h>
 #pragma comment(lib, "Ws2_32.lib")
 
 using namespace std;
@@ -18,6 +19,7 @@ HANDLE hMutex;
 WSADATA wsaData;
 SOCKET ConnectSocket = INVALID_SOCKET;
 SECURITY_ATTRIBUTES sa;
+string inputBuffer = "";
 struct addrinfo* result = NULL, * ptr = NULL, hints;
 
 DWORD WINAPI ReceiveMessages(LPVOID lpParam) {
@@ -25,14 +27,18 @@ DWORD WINAPI ReceiveMessages(LPVOID lpParam) {
     char recvbuf[BUFLEN];
     int iResult;
 
+    extern string inputBuffer;
+
     while (true) {
         iResult = recv(clientSocket, recvbuf, BUFLEN - 1, 0);
         if (iResult > 0) {
             recvbuf[iResult] = '\0';
 
             WaitForSingleObject(hMutex, INFINITE);
-            cout << "\r" << recvbuf << endl;
-            cout << "> ";
+            printf("\r\33[K");
+
+            cout << recvbuf << endl;
+            cout << "> " << inputBuffer;
             fflush(stdout);
             ReleaseMutex(hMutex);
         }
@@ -48,10 +54,11 @@ DWORD WINAPI ReceiveMessages(LPVOID lpParam) {
     return 0;
 }
 
+
+
+
 int main() {
     setlocale(0, "rus");
-
-    string ipAddress = "192.168.0.105"; // Замените на IP сервера
 
     int iResult = WSAStartup(MAKEWORD(2, 2), &wsaData);
     if (iResult != 0) {
@@ -64,7 +71,7 @@ int main() {
     hints.ai_socktype = SOCK_STREAM;
     hints.ai_protocol = IPPROTO_TCP;
 
-    iResult = getaddrinfo(ipAddress.c_str(), PORT, &hints, &result);
+    iResult = getaddrinfo(IP, PORT, &hints, &result);
     if (iResult != 0) {
         printf("Ошибка getaddrinfo\n");
         WSACleanup();
@@ -113,20 +120,43 @@ int main() {
 
     while (true) {
         cout << "> ";
-        string input;
-        getline(cin, input);
+        inputBuffer = "";
+        char ch;
 
-        if (input == "/exit") {
+        while (true) {
+            ch = _getch();
+
+            if (ch == '\r') {
+                cout << endl;
+                break;
+            }
+            else if (ch == 8) {
+                if (!inputBuffer.empty()) {
+                    inputBuffer.pop_back();
+                    cout << "\b \b";
+                    fflush(stdout);
+                }
+            }
+            else if (isprint(ch)) {
+                inputBuffer.push_back(ch);
+                cout << ch;
+                fflush(stdout);
+            }
+        }
+
+        if (inputBuffer == "/exit") {
             printf("Выход из чата...\n");
             break;
         }
 
-        input += "\n";
-        iResult = send(ConnectSocket, input.c_str(), (int)input.length(), 0);
+        string toSend = inputBuffer + "\n";
+        iResult = send(ConnectSocket, toSend.c_str(), (int)toSend.length(), 0);
         if (iResult == SOCKET_ERROR) {
             printf("Ошибка отправки сообщения: %d\n", WSAGetLastError());
             break;
         }
+
+        inputBuffer.clear();
     }
 
     shutdown(ConnectSocket, SD_BOTH);

@@ -1,5 +1,4 @@
-﻿// server.cpp
-#define _CRT_SECURE_NO_WARNINGS
+﻿#define _CRT_SECURE_NO_WARNINGS
 #define WIN32_LEAN_AND_MEAN
 #define PORT "8080"
 #define BUFLEN 512
@@ -76,7 +75,6 @@ DWORD WINAPI ClientThread(LPVOID lpParam) {
     int iResult;
     std::string clientName;
 
-    // Имя
     while (true) {
         const char* prompt = "Введите ваше имя: ";
         send(clientSocket, prompt, (int)strlen(prompt), 0);
@@ -110,7 +108,7 @@ DWORD WINAPI ClientThread(LPVOID lpParam) {
     logAll(joinMsg);
     sendToAllClients(joinMsg, clientSocket);
 
-    // Чат
+
     while (true) {
         iResult = recv(clientSocket, recvbuf, BUFLEN, 0);
         if (iResult <= 0) break;
@@ -153,8 +151,8 @@ DWORD WINAPI ClientThread(LPVOID lpParam) {
         }
     }
 
-    // Отключение
     std::string leaveMsg = "[Сервер]: " + clientName + " покинул чат.";
+    sendToAllClients(leaveMsg, clientSocket);
     logAll(leaveMsg);
     closesocket(clientSocket);
     WaitForSingleObject(hMutex, INFINITE);
